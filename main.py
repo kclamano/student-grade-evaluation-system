@@ -43,30 +43,56 @@ def load_from_files():
                 }
 
     if os.path.exists('grades.csv'):
-        with open('grades.csv', 'r') as f:
-            grades_dataset = tablib.Dataset().load(f.read(), format='csv')
+        try:
+            with open('grades.csv', 'r') as f:
+                content = f.read()
+                if content.strip():
+                    loaded_dataset = tablib.Dataset().load(content, format='csv')
 
-            dict_grades.clear()
-            current_student = None
-            for row in grades_dataset:
-                student_num = row[0]
-                subject = row[3]
+                    if loaded_dataset.headers and len(loaded_dataset.headers) == 11:
+                        grades_dataset = loaded_dataset
+                    else:
+                        print("Warning: grades.csv has incorrect format. Resetting grades dataset.")
+                        grades_dataset = tablib.Dataset()
+                        grades_dataset.headers = ['Student Number', 'Name', 'Section', 'Subject', 'PRELIM', 'MIDTERM',
+                                                  'PREFINAL', 'FINAL', 'SUBJECT_FINAL_GRADE', 'REMARKS',
+                                                  'FINAL_AVERAGE']
+                        os.remove('grades.csv')
+                        return
+                else:
+                    grades_dataset = tablib.Dataset()
+                    grades_dataset.headers = ['Student Number', 'Name', 'Section', 'Subject', 'PRELIM', 'MIDTERM',
+                                              'PREFINAL', 'FINAL', 'SUBJECT_FINAL_GRADE', 'REMARKS', 'FINAL_AVERAGE']
+                    return
 
-                if student_num != current_student:
-                    dict_grades[student_num] = {
-                        'name': row[1],
-                        'section': row[2],
-                        'final_average': float(row[10]),
-                        'remarks': "PASSED" if float(row[10]) >= 75 else "FAILED"
+                dict_grades.clear()
+                current_student = None
+                for row in grades_dataset:
+                    student_num = row[0]
+                    subject = row[3]
+
+                    if student_num != current_student:
+                        dict_grades[student_num] = {
+                            'name': row[1],
+                            'section': row[2],
+                            'final_average': float(row[10]) if row[10] else 0,
+                            'remarks': "PASSED" if (row[10] and float(row[10]) >= 75) else "FAILED"
+                        }
+                        current_student = student_num
+
+                    dict_grades[student_num][subject] = {
+                        'prelim': float(row[4]) if row[4] else 0,
+                        'midterm': float(row[5]) if row[5] else 0,
+                        'prefinal': float(row[6]) if row[6] else 0,
+                        'final': float(row[7]) if row[7] else 0
                     }
-                    current_student = student_num
-
-                dict_grades[student_num][subject] = {
-                    'prelim': float(row[4]),
-                    'midterm': float(row[5]),
-                    'prefinal': float(row[6]),
-                    'final': float(row[7])
-                }
+        except Exception as e:
+            print(f"Error loading grades.csv: {e}. Starting with fresh grades dataset.")
+            grades_dataset = tablib.Dataset()
+            grades_dataset.headers = ['Student Number', 'Name', 'Section', 'Subject', 'PRELIM', 'MIDTERM',
+                                      'PREFINAL', 'FINAL', 'SUBJECT_FINAL_GRADE', 'REMARKS', 'FINAL_AVERAGE']
+            if os.path.exists('grades.csv'):
+                os.remove('grades.csv')
 
 
 def validate_section(section):
@@ -113,8 +139,8 @@ def validate_grade_input(prompt):
     while True:
         try:
             grade = float(input(prompt))
-            if grade < 0 or grade > 100:
-                print("Error: Grade must be between 0 and 100.")
+            if grade < 65 or grade > 100:
+                print("Error: Grade must be between 65 and 100.")
                 continue
             return grade
         except ValueError:
@@ -236,64 +262,39 @@ def view_specific_student_grades():
         return
 
     student_info = dict_student[student_num]
-    print(f"\nStudent Name: {student_info['name']}")
-
-    confirm = input("Is the student name correct? (y/n): ").lower()
-    if confirm != 'y':
-        print("Returning to menu...")
-        return
+    student_name = student_info['name']
 
     if student_num not in dict_grades:
-        print("No grades computed for this student yet.")
+        print(f"\nNo grades recorded yet for {student_name}.")
         return
 
     grades = dict_grades[student_num]
 
-    print("\n" + "=" * 120)
-    print(f"GRADES FOR: {student_info['name'].upper()}")
-    print(f"SECTION: {student_info['section']}")
-    print(f"STUDENT NUMBER: {student_num}")
-    print("=" * 120)
+    print("\n" + "=" * 80)
+    print(f"GRADE REPORT FOR: {student_name}")
+    print(f"Section: {student_info['section']}")
+    print("=" * 80)
 
-    print(
-        f"\n{'SUBJECT':<15} {'PRELIM':<10} {'MIDTERM':<10} {'PREFINAL':<12} {'FINAL':<10} {'FINAL GRADE':<12} {'REMARKS':<10}")
-    print("-" * 85)
+    print(f"\n{'SUBJECT':<15} {'PRELIM':<10} {'MIDTERM':<10} {'PREFINAL':<12} {'FINAL':<10} {'FINAL GRADE':<12}")
+    print("-" * 80)
 
     for subject in subjects:
         if subject in grades:
             subj_grades = grades[subject]
             final_grade = calculate_final_subject_grade(grades, subject)
-            subject_remarks = "PASSED" if final_grade >= 75 else "FAILED"
 
             print(f"{subject:<15} "
                   f"{subj_grades.get('prelim', 0):<10.1f} "
                   f"{subj_grades.get('midterm', 0):<10.1f} "
                   f"{subj_grades.get('prefinal', 0):<12.1f} "
                   f"{subj_grades.get('final', 0):<10.1f} "
-                  f"{final_grade:<12.2f} "
-                  f"{subject_remarks:<10}")
-
-    print("\n" + "=" * 60)
-    print("OVERALL QUARTER AVERAGES:")
-    print("=" * 60)
-
-    prelim_overall = calculate_quarter_average(grades, 'prelim')
-    midterm_overall = calculate_quarter_average(grades, 'midterm')
-    prefinal_overall = calculate_quarter_average(grades, 'prefinal')
-    final_overall = calculate_quarter_average(grades, 'final')
-
-    print(f"{'OVERALL PRELIM AVERAGE:':<25} {prelim_overall:.2f}")
-    print(f"{'OVERALL MIDTERM AVERAGE:':<25} {midterm_overall:.2f}")
-    print(f"{'OVERALL PREFINAL AVERAGE:':<25} {prefinal_overall:.2f}")
-    print(f"{'OVERALL FINAL AVERAGE:':<25} {final_overall:.2f}")
+                  f"{final_grade:<12.2f}")
 
     if 'final_average' in grades:
-        final_average = grades['final_average']
-        remarks = "PASSED" if final_average >= 75 else "FAILED"
-
-        print("\n" + "=" * 60)
-        print(f"{'OVERALL FINAL GRADE AVERAGE:':<25} {final_average:.2f}")
-        print(f"{'FINAL REMARKS:':<25} {remarks}")
+        print("\n" + "-" * 80)
+        print(f"OVERALL FINAL GRADE AVERAGE: {grades['final_average']:.2f}")
+        print(f"FINAL REMARKS: {grades['remarks']}")
+        print("-" * 80)
 
 
 def view_section_grades():
@@ -301,79 +302,47 @@ def view_section_grades():
         print("No registered students yet.")
         return
 
-    section = input("Enter section to view (e.g., BSCS-12M1): ").upper()
+    section = input("Enter section to view grades (e.g., BSCS-12M1): ").upper()
 
     section_students = []
     for student_num, info in dict_student.items():
         if info['section'] == section:
-            section_students.append(student_num)
+            section_students.append((info['name'], student_num))
 
     if not section_students:
         print(f"No students found in section {section}.")
         return
 
-    print(f"\n" + "=" * 120)
-    print(f"GRADES FOR {section} SECTION")
-    print("=" * 120)
+    print(f"\n{'=' * 80}")
+    print(f"GRADES FOR SECTION: {section}")
+    print(f"{'=' * 80}")
 
-    section_grades_data = []
-    for row in grades_dataset:
-        if row[2] == section:
-            section_grades_data.append(row)
-
-    if not section_grades_data:
-        print(f"No grades found for section {section}.")
-        return
-
-    student_grades = {}
-    for row in section_grades_data:
-        student_num = row[0]
-        if student_num not in student_grades:
-            student_grades[student_num] = []
-        student_grades[student_num].append(row)
-
-    for student_num, grades_rows in sorted(student_grades.items()):
-        student_name = dict_student[student_num]['name'] if student_num in dict_student else "Unknown"
-
-        print(f"\n{student_name} - {student_num}")
-        print("-" * 85)
-        print(
-            f"{'SUBJECT':<15} {'PRELIM':<10} {'MIDTERM':<10} {'PREFINAL':<12} {'FINAL':<10} {'FINAL GRADE':<12} {'REMARKS':<10}")
-        print("-" * 85)
-
-        for row in grades_rows:
-            subject = row[3]
-            prelim = float(row[4])
-            midterm = float(row[5])
-            prefinal = float(row[6])
-            final = float(row[7])
-            subject_final = float(row[8])
-            remarks = row[9]
-
-            print(f"{subject:<15} "
-                  f"{prelim:<10.1f} "
-                  f"{midterm:<10.1f} "
-                  f"{prefinal:<12.1f} "
-                  f"{final:<10.1f} "
-                  f"{subject_final:<12.2f} "
-                  f"{remarks:<10}")
+    for name, student_num in sorted(section_students, key=lambda x: x[0]):
+        print(f"\n{name} ({student_num}):")
+        print("-" * 70)
 
         if student_num in dict_grades:
             grades = dict_grades[student_num]
-            prelim_overall = calculate_quarter_average(grades, 'prelim')
-            midterm_overall = calculate_quarter_average(grades, 'midterm')
-            prefinal_overall = calculate_quarter_average(grades, 'prefinal')
-            final_overall = calculate_quarter_average(grades, 'final')
 
-            print(f"\nOVERALL QUARTER AVERAGES:")
-            print(f"  PRELIM: {prelim_overall:.2f}")
-            print(f"  MIDTERM: {midterm_overall:.2f}")
-            print(f"  PREFINAL: {prefinal_overall:.2f}")
-            print(f"  FINAL: {final_overall:.2f}")
+            print(f"{'SUBJECT':<15} {'PRELIM':<10} {'MIDTERM':<10} {'PREFINAL':<12} {'FINAL':<10} {'FINAL GRADE':<12}")
+            print("-" * 70)
+
+            for subject in subjects:
+                if subject in grades:
+                    subj_grades = grades[subject]
+                    final_grade = calculate_final_subject_grade(grades, subject)
+
+                    print(f"{subject:<15} "
+                          f"{subj_grades.get('prelim', 0):<10.1f} "
+                          f"{subj_grades.get('midterm', 0):<10.1f} "
+                          f"{subj_grades.get('prefinal', 0):<12.1f} "
+                          f"{subj_grades.get('final', 0):<10.1f} "
+                          f"{final_grade:<12.2f}")
 
             if 'final_average' in grades:
-                print(f"\nOVERALL FINAL GRADE AVERAGE: {grades['final_average']:.2f} - {grades['remarks']}")
-        print()
+                print(f"\nFINAL AVERAGE: {grades['final_average']:.2f} | REMARKS: {grades['remarks']}")
+        else:
+            print("No grades recorded yet.")
 
 
 def view_student_records_menu():
@@ -381,14 +350,14 @@ def view_student_records_menu():
         print("\n" + "=" * 50)
         print("VIEW STUDENT RECORDS")
         print("=" * 50)
-        print("1. View all students' records (by section)")
-        print("2. View a specific section")
-        print("3. View a specific student grades")
-        print("4. View a section grades")
-        print("5. Return to Main Menu")
+        print("1. View all students by section")
+        print("2. View students in a specific section")
+        print("3. View specific student's grades")
+        print("4. View grades of all students in a section")
+        print("5. Return to main menu")
 
         try:
-            choice = int(input("\nPlease input a number: "))
+            choice = int(input("\nEnter choice: "))
         except ValueError:
             print("Invalid input. Please enter a number.")
             continue
@@ -473,7 +442,7 @@ def compute_quarter_grades():
             print("2. MIDTERM Quarter")
             print("3. PREFINAL Quarter")
             print("4. FINAL Quarter")
-            print("5. Cancel")
+            print("5. Return to student selection")
 
             try:
                 quarter_choice = int(input("\nEnter choice: "))
@@ -505,12 +474,39 @@ def compute_quarter_grades():
 
             print(f"\nComputing {quarter.upper()} QUARTER grades:")
             print("-" * 30)
+
+            if student_num in dict_grades:
+                print("\nPREVIOUS GRADES (for reference):")
+                print(f"{'SUBJECT':<15}", end='')
+
+                quarters_to_show = []
+                if quarter == 'midterm':
+                    quarters_to_show = ['prelim']
+                elif quarter == 'prefinal':
+                    quarters_to_show = ['prelim', 'midterm']
+                elif quarter == 'final':
+                    quarters_to_show = ['prelim', 'midterm', 'prefinal']
+
+                for q in quarters_to_show:
+                    print(f"{q.upper():<10}", end='')
+                print()
+                print("-" * (15 + 10 * len(quarters_to_show)))
+
+                for subject in subjects:
+                    if subject in dict_grades[student_num]:
+                        print(f"{subject:<15}", end='')
+                        for q in quarters_to_show:
+                            grade = dict_grades[student_num][subject].get(q, 0)
+                            print(f"{grade:<10.1f}", end='')
+                        print()
+                print()
+
             print(f"Enter grades for all 3 subjects ({quarter.upper()} Quarter)")
 
             quarter_grades = {}
             for subject in subjects:
                 print(f"\n{subject}:")
-                grade = validate_grade_input(f"  Enter {quarter.upper()} grade (0-100): ")
+                grade = validate_grade_input(f"  Enter {quarter.upper()} grade (65-100): ")
                 quarter_grades[subject] = grade
 
                 if subject not in student_grades:
@@ -519,55 +515,71 @@ def compute_quarter_grades():
                 student_grades[subject][quarter] = grade
 
             quarter_average = sum(quarter_grades.values()) / len(subjects)
+
             print(f"\n{'=' * 50}")
-            print(f"YOUR OVERALL {quarter.upper()} QUARTER AVERAGE IS: {quarter_average:.2f}")
+            print(f"{student_name}'s OVERALL {quarter.upper()} QUARTER AVERAGE: {quarter_average:.2f}")
+
+            quarter_status = "PASSED" if quarter_average >= 75 else "FAILED"
+            print(f"STATUS: {quarter_status}")
             print(f"{'=' * 50}")
 
             dict_grades[student_num] = student_grades
 
-            if all(quarter in ['prelim', 'midterm', 'prefinal', 'final'] for quarter in
-                   ['prelim', 'midterm', 'prefinal', 'final']):
-                for subject in subjects:
-                    if subject in student_grades:
-                        subj_grades = student_grades[subject]
-                        if all(period in subj_grades for period in ['prelim', 'midterm', 'prefinal', 'final']):
-                            final_grade = calculate_final_subject_grade(student_grades, subject)
-                            remarks = "PASSED" if final_grade >= 75 else "FAILED"
+            for subject in subjects:
+                if subject in student_grades:
+                    subj_grades = student_grades[subject]
 
-                            found = False
-                            for i, row in enumerate(grades_dataset):
-                                if row[0] == student_num and row[3] == subject:
-                                    grades_dataset[i][4] = subj_grades.get('prelim', 0)
-                                    grades_dataset[i][5] = subj_grades.get('midterm', 0)
-                                    grades_dataset[i][6] = subj_grades.get('prefinal', 0)
-                                    grades_dataset[i][7] = subj_grades.get('final', 0)
-                                    grades_dataset[i][8] = round(final_grade, 2)
-                                    grades_dataset[i][9] = remarks
-                                    found = True
-                                    break
+                    final_grade = 0
+                    remarks = ""
+                    if all(period in subj_grades for period in ['prelim', 'midterm', 'prefinal', 'final']):
+                        final_grade = calculate_final_subject_grade(student_grades, subject)
+                        remarks = "PASSED" if final_grade >= 75 else "FAILED"
 
-                            if not found:
-                                grades_dataset.append([
-                                    student_num,
-                                    student_name,
-                                    dict_student[student_num]['section'],
-                                    subject,
-                                    subj_grades.get('prelim', 0),
-                                    subj_grades.get('midterm', 0),
-                                    subj_grades.get('prefinal', 0),
-                                    subj_grades.get('final', 0),
-                                    round(final_grade, 2),
-                                    remarks,
-                                    0
-                                ])
+                    found = False
+                    for i, row in enumerate(grades_dataset):
+                        if row[0] == student_num and row[3] == subject:
+                            grades_dataset[i] = (
+                                student_num,
+                                student_name,
+                                dict_student[student_num]['section'],
+                                subject,
+                                subj_grades.get('prelim', 0),
+                                subj_grades.get('midterm', 0),
+                                subj_grades.get('prefinal', 0),
+                                subj_grades.get('final', 0),
+                                round(final_grade, 2) if final_grade > 0 else 0,
+                                remarks if remarks else "",
+                                0
+                            )
+                            found = True
+                            break
 
-                final_avg = calculate_final_average(student_grades)
+                    if not found:
+                        grades_dataset.append([
+                            student_num,
+                            student_name,
+                            dict_student[student_num]['section'],
+                            subject,
+                            subj_grades.get('prelim', 0),
+                            subj_grades.get('midterm', 0),
+                            subj_grades.get('prefinal', 0),
+                            subj_grades.get('final', 0),
+                            round(final_grade, 2) if final_grade > 0 else 0,
+                            remarks if remarks else "",
+                            0
+                        ])
+
+            final_avg = calculate_final_average(student_grades)
+            if final_avg > 0:
                 dict_grades[student_num]['final_average'] = round(final_avg, 2)
                 dict_grades[student_num]['remarks'] = "PASSED" if final_avg >= 75 else "FAILED"
 
                 for i, row in enumerate(grades_dataset):
                     if row[0] == student_num:
-                        grades_dataset[i][10] = round(final_avg, 2)
+                        grades_dataset[i] = (
+                            row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9],
+                            round(final_avg, 2)
+                        )
 
             save_to_files()
 
@@ -700,72 +712,168 @@ def edit_student_grades(student_num=None):
         quarter_map = {1: 'prelim', 2: 'midterm', 3: 'prefinal', 4: 'final'}
         quarter = quarter_map[quarter_choice]
 
-        print(f"\nEditing {quarter.upper()} QUARTER grades:")
-        print("Which subject?")
-        for i, subject in enumerate(subjects, 1):
-            print(f"{i}. {subject}")
+        print(f"\nCURRENT {quarter.upper()} GRADES for {student_name}:")
+        print("-" * 50)
+        print(f"{'SUBJECT':<20} {'CURRENT GRADE':<15}")
+        print("-" * 50)
+
+        for subject in subjects:
+            if subject in dict_grades[student_num]:
+                current_grade = dict_grades[student_num][subject].get(quarter, 0)
+                print(f"{subject:<20} {current_grade:<15.1f}")
+        print()
+
+        print(f"Editing {quarter.upper()} QUARTER grades:")
+        print("1. Edit ALL subjects at once")
+
+        for i, subject in enumerate(subjects, 2):
+            print(f"{i}. Edit {subject} only")
+
+        print(f"{len(subjects) + 2}. Back to quarter selection")
 
         try:
-            subject_choice = int(input("\nEnter subject number: "))
+            edit_choice = int(input("\nEnter choice: "))
         except ValueError:
             print("Invalid input.")
             continue
 
-        if subject_choice < 1 or subject_choice > len(subjects):
-            print("Invalid subject choice.")
+        if edit_choice == len(subjects) + 2:
             continue
 
-        subject = subjects[subject_choice - 1]
+        if edit_choice == 1:
+            print(f"\nEditing ALL {quarter.upper()} grades:")
+            print("-" * 40)
 
-        if student_num not in dict_grades or subject not in dict_grades[student_num]:
-            print(f"No grades recorded for {subject} yet.")
+            new_grades = {}
+            for subject in subjects:
+                current_grade = dict_grades[student_num][subject].get(quarter, 0)
+                print(f"\n{subject} (Current: {current_grade:.1f})")
+                new_grade = validate_grade_input(f"  Enter new {quarter} grade (65-100): ")
+                new_grades[subject] = new_grade
+
+            for subject, new_grade in new_grades.items():
+                dict_grades[student_num][subject][quarter] = new_grade
+
+                for i, row in enumerate(grades_dataset):
+                    if row[0] == student_num and row[3] == subject:
+                        old_prelim = float(row[4]) if row[4] else 0
+                        old_midterm = float(row[5]) if row[5] else 0
+                        old_prefinal = float(row[6]) if row[6] else 0
+                        old_final = float(row[7]) if row[7] else 0
+
+                        if quarter == 'prelim':
+                            prelim, midterm, prefinal, final = new_grade, old_midterm, old_prefinal, old_final
+                        elif quarter == 'midterm':
+                            prelim, midterm, prefinal, final = old_prelim, new_grade, old_prefinal, old_final
+                        elif quarter == 'prefinal':
+                            prelim, midterm, prefinal, final = old_prelim, old_midterm, new_grade, old_final
+                        elif quarter == 'final':
+                            prelim, midterm, prefinal, final = old_prelim, old_midterm, old_prefinal, new_grade
+
+                        final_grade_calc = 0
+                        remarks_calc = ""
+                        if all(grade > 0 for grade in [prelim, midterm, prefinal, final]):
+                            final_grade_calc = (prelim * 0.20) + (midterm * 0.25) + (prefinal * 0.25) + (final * 0.30)
+                            remarks_calc = "PASSED" if final_grade_calc >= 75 else "FAILED"
+
+                        grades_dataset[i] = (
+                            row[0], row[1], row[2], row[3],
+                            prelim, midterm, prefinal, final,
+                            round(final_grade_calc, 2) if final_grade_calc > 0 else 0,
+                            remarks_calc if remarks_calc else "",
+                            row[10] if len(row) > 10 else 0
+                        )
+                        break
+
+            final_avg = calculate_final_average(dict_grades[student_num])
+            dict_grades[student_num]['final_average'] = round(final_avg, 2)
+            dict_grades[student_num]['remarks'] = "PASSED" if final_avg >= 75 else "FAILED"
+
+            for i, row in enumerate(grades_dataset):
+                if row[0] == student_num:
+                    grades_dataset[i] = (
+                        row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9],
+                        round(final_avg, 2)
+                    )
+
+            quarter_avg = calculate_quarter_average(dict_grades[student_num], quarter)
+
+            print(f"\n" + "=" * 50)
+            print(f"All {quarter.upper()} grades updated successfully!")
+            print(f"Updated OVERALL {quarter.upper()} QUARTER AVERAGE: {quarter_avg:.2f}")
+            print(f"Updated OVERALL FINAL GRADE AVERAGE: {dict_grades[student_num]['final_average']:.2f}")
+            print(f"Updated FINAL REMARKS: {dict_grades[student_num]['remarks']}")
+            print("=" * 50)
+
+        elif 2 <= edit_choice <= len(subjects) + 1:
+            subject = subjects[edit_choice - 2]
+
+            if subject not in dict_grades[student_num]:
+                print(f"No grades recorded for {subject} yet.")
+                continue
+
+            current_grade = dict_grades[student_num][subject].get(quarter, 0)
+            print(f"\nEditing {subject} - {quarter.upper()} (Current: {current_grade:.1f})")
+            new_grade = validate_grade_input(f"Enter new {quarter} grade for {subject} (65-100): ")
+
+            dict_grades[student_num][subject][quarter] = new_grade
+
+            for i, row in enumerate(grades_dataset):
+                if row[0] == student_num and row[3] == subject:
+                    old_prelim = float(row[4]) if row[4] else 0
+                    old_midterm = float(row[5]) if row[5] else 0
+                    old_prefinal = float(row[6]) if row[6] else 0
+                    old_final = float(row[7]) if row[7] else 0
+
+                    if quarter == 'prelim':
+                        prelim, midterm, prefinal, final = new_grade, old_midterm, old_prefinal, old_final
+                    elif quarter == 'midterm':
+                        prelim, midterm, prefinal, final = old_prelim, new_grade, old_prefinal, old_final
+                    elif quarter == 'prefinal':
+                        prelim, midterm, prefinal, final = old_prelim, old_midterm, new_grade, old_final
+                    elif quarter == 'final':
+                        prelim, midterm, prefinal, final = old_prelim, old_midterm, old_prefinal, new_grade
+
+                    final_grade_calc = 0
+                    remarks_calc = ""
+                    if all(grade > 0 for grade in [prelim, midterm, prefinal, final]):
+                        final_grade_calc = (prelim * 0.20) + (midterm * 0.25) + (prefinal * 0.25) + (final * 0.30)
+                        remarks_calc = "PASSED" if final_grade_calc >= 75 else "FAILED"
+
+                    grades_dataset[i] = (
+                        row[0], row[1], row[2], row[3],
+                        prelim, midterm, prefinal, final,
+                        round(final_grade_calc, 2) if final_grade_calc > 0 else 0,
+                        remarks_calc if remarks_calc else "",
+                        row[10] if len(row) > 10 else 0
+                    )
+                    break
+
+            final_avg = calculate_final_average(dict_grades[student_num])
+            dict_grades[student_num]['final_average'] = round(final_avg, 2)
+            dict_grades[student_num]['remarks'] = "PASSED" if final_avg >= 75 else "FAILED"
+
+            for i, row in enumerate(grades_dataset):
+                if row[0] == student_num:
+                    grades_dataset[i] = (
+                        row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9],
+                        round(final_avg, 2)
+                    )
+
+            quarter_avg = calculate_quarter_average(dict_grades[student_num], quarter)
+
+            print(f"\n" + "=" * 50)
+            print(f"Grade updated successfully!")
+            print(f"New {quarter} grade for {subject}: {new_grade}")
+            print(f"Updated OVERALL {quarter.upper()} QUARTER AVERAGE: {quarter_avg:.2f}")
+            print(f"Updated OVERALL FINAL GRADE AVERAGE: {dict_grades[student_num]['final_average']:.2f}")
+            print(f"Updated FINAL REMARKS: {dict_grades[student_num]['remarks']}")
+            print("=" * 50)
+        else:
+            print("Invalid choice.")
             continue
 
-        new_grade = validate_grade_input(f"Enter new {quarter} grade for {subject} (0-100): ")
-
-        dict_grades[student_num][subject][quarter] = new_grade
-
-        for i, row in enumerate(grades_dataset):
-            if row[0] == student_num and row[3] == subject:
-                if quarter == 'prelim':
-                    grades_dataset[i][4] = new_grade
-                elif quarter == 'midterm':
-                    grades_dataset[i][5] = new_grade
-                elif quarter == 'prefinal':
-                    grades_dataset[i][6] = new_grade
-                elif quarter == 'final':
-                    grades_dataset[i][7] = new_grade
-
-                prelim = float(grades_dataset[i][4])
-                midterm = float(grades_dataset[i][5])
-                prefinal = float(grades_dataset[i][6])
-                final = float(grades_dataset[i][7])
-
-                if all(grade > 0 for grade in [prelim, midterm, prefinal, final]):
-                    final_grade = (prelim * 0.20) + (midterm * 0.25) + (prefinal * 0.25) + (final * 0.30)
-                    grades_dataset[i][8] = round(final_grade, 2)
-                    grades_dataset[i][9] = "PASSED" if final_grade >= 75 else "FAILED"
-                break
-
-        final_avg = calculate_final_average(dict_grades[student_num])
-        dict_grades[student_num]['final_average'] = round(final_avg, 2)
-        dict_grades[student_num]['remarks'] = "PASSED" if final_avg >= 75 else "FAILED"
-
-        for i, row in enumerate(grades_dataset):
-            if row[0] == student_num:
-                grades_dataset[i][10] = round(final_avg, 2)
-
-        quarter_avg = calculate_quarter_average(dict_grades[student_num], quarter)
-
-        print(f"\n" + "=" * 50)
-        print(f"Grade updated successfully!")
-        print(f"New {quarter} grade for {subject}: {new_grade}")
-        print(f"Updated OVERALL {quarter.upper()} QUARTER AVERAGE: {quarter_avg:.2f}")
-        print(f"Updated OVERALL FINAL GRADE AVERAGE: {dict_grades[student_num]['final_average']:.2f}")
-        print(f"Updated FINAL REMARKS: {dict_grades[student_num]['remarks']}")
-        print("=" * 50)
-
-        confirm = input("\nIs this correct? (y/n): ").lower()
+        confirm = input("\nSave these changes? (y/n): ").lower()
         if confirm == 'y':
             save_to_files()
             print("Changes saved successfully!")
